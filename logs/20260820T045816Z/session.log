@@ -1,6 +1,0 @@
-[10:28:16] CALL write_file {'path': 'notes/todo.md', 'content': '- buy groceries'}
-[10:28:16] RESULT write_file [ok] created notes/todo.md, 15 bytes
-[10:28:16] SHELL (exit 0) $ mkdir -p notes && ls notes
-[10:28:16] FILE created notes/todo.md
-[10:28:16] ERROR: write denied: outside write_root
-[10:28:16] PAUSED: sanity check complete

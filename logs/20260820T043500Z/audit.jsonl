@@ -1,5 +1,0 @@
-{"ts": "2026-08-20T04:35:00.075120+00:00", "session": "20260820T043500Z", "event": "tool_call", "tool": "read_file", "args": {"path": "cpu.v"}}
-{"ts": "2026-08-20T04:35:00.076396+00:00", "session": "20260820T043500Z", "event": "tool_result", "tool": "read_file", "success": true, "summary": "342 bytes"}
-{"ts": "2026-08-20T04:35:00.077251+00:00", "session": "20260820T043500Z", "event": "shell", "command": "iverilog -o cpu cpu.v", "returncode": 1}
-{"ts": "2026-08-20T04:35:00.078043+00:00", "session": "20260820T043500Z", "event": "error", "message": "compile failed: unexpected token"}
-{"ts": "2026-08-20T04:35:00.078896+00:00", "session": "20260820T043500Z", "event": "pause", "reason": "sanity check complete"}

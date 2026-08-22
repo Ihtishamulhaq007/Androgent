@@ -1,0 +1,2 @@
+# No third-party dependencies — stdlib only (urllib for Gemini calls).
+# This file exists so install.sh has something to point at if that changes later.

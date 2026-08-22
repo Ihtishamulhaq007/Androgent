@@ -1,6 +1,0 @@
-{"ts": "2026-08-20T04:58:16.009629+00:00", "session": "20260820T045816Z", "event": "tool_call", "tool": "write_file", "args": {"path": "notes/todo.md", "content": "- buy groceries"}}
-{"ts": "2026-08-20T04:58:16.011041+00:00", "session": "20260820T045816Z", "event": "tool_result", "tool": "write_file", "success": true, "summary": "created notes/todo.md, 15 bytes"}
-{"ts": "2026-08-20T04:58:16.012180+00:00", "session": "20260820T045816Z", "event": "shell", "command": "mkdir -p notes && ls notes", "returncode": 0}
-{"ts": "2026-08-20T04:58:16.013001+00:00", "session": "20260820T045816Z", "event": "file_change", "path": "notes/todo.md", "action": "created"}
-{"ts": "2026-08-20T04:58:16.013862+00:00", "session": "20260820T045816Z", "event": "error", "message": "write denied: outside write_root"}
-{"ts": "2026-08-20T04:58:16.014669+00:00", "session": "20260820T045816Z", "event": "pause", "reason": "sanity check complete"}

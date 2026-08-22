@@ -1,5 +1,0 @@
-[10:05:00] CALL read_file {'path': 'cpu.v'}
-[10:05:00] RESULT read_file [ok] 342 bytes
-[10:05:00] SHELL (exit 1) $ iverilog -o cpu cpu.v
-[10:05:00] ERROR: compile failed: unexpected token
-[10:05:00] PAUSED: sanity check complete
