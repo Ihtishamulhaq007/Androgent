@@ -1,2 +1,12 @@
-# No third-party dependencies — stdlib only (urllib for Gemini calls).
-# This file exists so install.sh has something to point at if that changes later.
+# Python dependencies: NONE.
+#
+# This agent is pure Python standard library — urllib handles the Gemini
+# API calls, no pip installs required for the agent code itself.
+#
+# System-level requirements (installed via install.sh, not pip):
+#   - Termux "python" package
+#   - Termux "git" package
+#   - A Gemini API key: https://aistudio.google.com/apikey
+#
+# This file is kept as a placeholder / convention in case a real
+# dependency gets added later.
