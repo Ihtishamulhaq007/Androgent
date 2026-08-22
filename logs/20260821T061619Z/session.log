@@ -1,0 +1,7 @@
+[11:46:19] CALL run_shell {'command': 'echo "Hello world"'}
+[11:46:19] RESULT run_shell [ok] Hello world
+
+[11:46:20] ERROR: Gemini API error: Function call is missing a thought_signature in functionCall parts. This is required for tools to work correctly, and missing thought_signature may lead to degraded model performance. Additional data, function call `default_api:run_shell` , position 2. Please refer to https://ai.google.dev/gemini-api/docs/thought-signatures for more details.
+[11:46:21] ERROR: Gemini API error: Function call is missing a thought_signature in functionCall parts. This is required for tools to work correctly, and missing thought_signature may lead to degraded model performance. Additional data, function call `default_api:run_shell` , position 2. Please refer to https://ai.google.dev/gemini-api/docs/thought-signatures for more details.
+[11:46:22] ERROR: Gemini API error: Function call is missing a thought_signature in functionCall parts. This is required for tools to work correctly, and missing thought_signature may lead to degraded model performance. Additional data, function call `default_api:run_shell` , position 2. Please refer to https://ai.google.dev/gemini-api/docs/thought-signatures for more details.
+[11:46:22] PAUSED: cancelled by user (Ctrl+C)
