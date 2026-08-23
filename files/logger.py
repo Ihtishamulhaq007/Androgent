@@ -55,8 +55,10 @@ class SessionLogger:
         if not self._logger.handlers:
             file_handler = logging.FileHandler(self.human_path, encoding="utf-8")
             file_handler.setFormatter(logging.Formatter("[%(asctime)s] %(message)s", "%H:%M:%S"))
+
             console_handler = logging.StreamHandler()
-            console_handler.setFormatter(logging.Formatter("%(message)s"))
+            console_handler.setFormatter(logging.Formatter("%(compact)s"))
+
             self._logger.addHandler(file_handler)
             self._logger.addHandler(console_handler)
 
@@ -71,7 +73,10 @@ class SessionLogger:
         }
         with self.audit_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(record, default=str) + "\n")
-        self._logger.info(self._humanize(event, fields))
+        self._logger.info(
+            self._humanize(event, fields),
+            extra={"compact": self._compact(event, fields)},
+        )
 
     # ---- convenience wrappers ----
 
@@ -129,6 +134,36 @@ class SessionLogger:
         if event == "resume":
             return "RESUMED"
         return f"{event.upper()} {fields}"
+
+    @staticmethod
+    def _shorten(value: str, limit: int = 80) -> str:
+        value = str(value).replace("\n", " ")
+        return value if len(value) <= limit else value[: limit - 1] + "…"
+
+    @classmethod
+    def _compact(cls, event: str, fields: dict) -> str:
+        """One short line for the terminal. Full detail always still goes
+        to session.log and audit.jsonl — this is just what scrolls by live."""
+        if event == "tool_call":
+            args = fields["args"]
+            arg_preview = ", ".join(f"{k}={cls._shorten(v, 40)}" for k, v in args.items())
+            return f"→ {fields['tool']}({arg_preview})"
+        if event == "tool_result":
+            status = "ok" if fields["success"] else "FAILED"
+            return f"  [{status}] {cls._shorten(fields['summary'], 100)}"
+        if event == "shell":
+            return f"$ {cls._shorten(fields['command'], 90)} (exit {fields['returncode']})"
+        if event == "file_change":
+            return f"  {fields['action']} {fields['path']}"
+        if event == "model_response":
+            return f"» {cls._shorten(fields['text'], 120)}"
+        if event == "error":
+            return f"✗ {cls._shorten(fields['message'], 120)}"
+        if event == "pause":
+            return f"⏸ {fields['reason']}"
+        if event == "resume":
+            return "▶ resumed"
+        return f"{event} {cls._shorten(fields, 80)}"
 
 
 if __name__ == "__main__":
