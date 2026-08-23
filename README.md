@@ -70,7 +70,7 @@ You do need on the Termux side:
 
 ```bash
 git clone https://github.com/Ihtishamulhaq007/Androgent.git
-cd Androgent/agent
+cd Androgent
 bash install.sh
 source ~/.bashrc
 ```
