@@ -17,16 +17,18 @@ Optional environment variables:
                             creates).
     AGENT_ITERATION_BLOCK  Iteration budget per run, and size of each
                             extension offered when it runs out. Default 40.
+    AGENT_LOG_DIR           Overrides log_dir directly. Rarely needed.
 
 Derived, not configurable:
     write_root = <shared_root>/termux      WRITE_ROOT
     stage_root = <write_root>/temp          staging area for edits to
                                               files that live outside
                                               write_root
-    log_dir    = <write_root>/agent/logs    runtime logs — NOT the same
-                                              "agent" as this source
-                                              package, just a coincidence
-                                              of naming
+    log_dir    = <install_dir>/logs         runtime logs, next to wherever
+                                              this repo was cloned — NOT
+                                              under write_root, so logs
+                                              stay put no matter what
+                                              AGENT_SHARED_ROOT is set to
 """
 
 from __future__ import annotations
@@ -78,7 +80,8 @@ def load_config() -> Config:
     stage_root = write_root / "temp"
     stage_root.mkdir(parents=True, exist_ok=True)
 
-    log_dir = write_root / "agent" / "logs"
+    install_dir = Path(__file__).resolve().parent.parent
+    log_dir = Path(os.environ.get("AGENT_LOG_DIR", str(install_dir / "logs"))).expanduser().resolve()
     log_dir.mkdir(parents=True, exist_ok=True)
 
     return Config(
