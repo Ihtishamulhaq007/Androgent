@@ -100,3 +100,30 @@ python3 -m files.main --goal "your goal here" --resume 20260821T120000Z
 - Files the agent writes land under `~/storage/shared/termux` on your phone.
 - Override that location with `export AGENT_SHARED_ROOT=/some/other/path`.
 - Logs (audit + human-readable) are written per-session and gitignored.
+
+
+
+
+
+
+10-Line Security Summary
+1. Shell Access
+run_shell gives Gemini arbitrary bash -c execution under Termux's permissions.
+2. No Shell Gate
+Dangerous-command detection and human confirmation are currently disabled.
+3. Permission Bypass
+Shell commands bypass the agent's WRITE_ROOT restriction.
+4. File Destruction
+Accessible shared-storage files could potentially be deleted or corrupted.
+5. Agent Compromise
+The agent's own source, configuration, and safety mechanisms could be modified or deleted.
+6. Secret Exposure
+Accessible API keys, credentials, tokens, and SSH keys could potentially be read.
+7. Data Exfiltration
+Accessible data could potentially be transmitted externally if network access is available.
+8. Arbitrary Execution
+Bash can invoke Python, scripts, binaries, package managers, and other installed utilities.
+9. Blacklists Are Insufficient
+Blocking specific dangerous commands cannot reliably secure unrestricted Bash.
+10. Actual Security Boundary
+The effective boundary is the Android/Termux sandbox, not WRITE_ROOT; unrestricted run_shell should therefore be treated as arbitrary code execution within that boundary.
