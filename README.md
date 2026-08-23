@@ -106,7 +106,7 @@ python3 -m files.main --goal "your goal here" --resume 20260821T120000Z
 
 
 
-10-Line Security Summary
+# 10-Line Security Summary
 1. Shell Access
 run_shell gives Gemini arbitrary bash -c execution under Termux's permissions.
 2. No Shell Gate
