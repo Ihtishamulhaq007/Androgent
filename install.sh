@@ -4,7 +4,7 @@ set -e
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo "== 1/5: Installing packages =="
-pkg install -y python git
+pkg install -y python git curl
 
 echo ""
 echo "== 2/5: Storage access =="
@@ -28,21 +28,53 @@ echo "== 4/5: Gemini config =="
 BASHRC="$HOME/.bashrc"
 touch "$BASHRC"
 
+# --- API key ---
 if grep -q "^export GEMINI_API_KEY=" "$BASHRC"; then
-    echo "GEMINI_API_KEY already set in ~/.bashrc, leaving it as-is."
+    GEMINI_API_KEY="$(grep "^export GEMINI_API_KEY=" "$BASHRC" | tail -1 | cut -d= -f2-)"
+    echo "Using existing GEMINI_API_KEY from ~/.bashrc."
 else
     echo -n "Paste your Gemini API key (from https://aistudio.google.com/apikey): "
-    read -r GEMINI_KEY_INPUT
-    echo "export GEMINI_API_KEY=$GEMINI_KEY_INPUT" >> "$BASHRC"
+    read -r GEMINI_API_KEY
+    echo "export GEMINI_API_KEY=$GEMINI_API_KEY" >> "$BASHRC"
 fi
 
+# --- Model selection ---
 if grep -q "^export GEMINI_MODEL=" "$BASHRC"; then
     echo "GEMINI_MODEL already set in ~/.bashrc, leaving it as-is."
 else
-    echo -n "Gemini model [default: gemini-3.5-flash-lite]: "
-    read -r GEMINI_MODEL_INPUT
-    GEMINI_MODEL_INPUT="${GEMINI_MODEL_INPUT:-gemini-3.5-flash-lite}"
-    echo "export GEMINI_MODEL=$GEMINI_MODEL_INPUT" >> "$BASHRC"
+    echo "Fetching available Gemini models..."
+    MODEL_JSON="$(curl -s "https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_API_KEY}")"
+    MODEL_LIST="$(echo "$MODEL_JSON" | grep -o '"name": *"models/[a-zA-Z0-9.\-]*"' | sed -E 's/.*models\///; s/"//')"
+    MODEL_LIST="$(echo "$MODEL_LIST" | grep -E 'flash|pro' | grep -vE 'embedding|aqa|image|imagen|video|veo|tts|vision|live|robotics' | sort -u)"
+
+    if [ -z "$MODEL_LIST" ]; then
+        echo "Couldn't fetch the model list (check your key/network). Using a safe default."
+        GEMINI_MODEL="gemini-3.5-flash-lite"
+    else
+        echo ""
+        echo "Available models:"
+        i=1
+        declare -A MODEL_MAP
+        DEFAULT_NUM=1
+        while IFS= read -r m; do
+            MODEL_MAP[$i]="$m"
+            if [ "$m" = "gemini-3.5-flash-lite" ]; then
+                echo "  $i) $m   <-- recommended: fast and reliable"
+                DEFAULT_NUM=$i
+            else
+                echo "  $i) $m"
+            fi
+            i=$((i+1))
+        done <<< "$MODEL_LIST"
+        echo ""
+        echo -n "Pick a number [default: $DEFAULT_NUM]: "
+        read -r CHOICE
+        CHOICE="${CHOICE:-$DEFAULT_NUM}"
+        GEMINI_MODEL="${MODEL_MAP[$CHOICE]:-gemini-3.5-flash-lite}"
+    fi
+
+    echo "export GEMINI_MODEL=$GEMINI_MODEL" >> "$BASHRC"
+    echo "Selected: $GEMINI_MODEL"
 fi
 
 echo ""
