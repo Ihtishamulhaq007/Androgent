@@ -39,9 +39,9 @@ fi
 if grep -q "^export GEMINI_MODEL=" "$BASHRC"; then
     echo "GEMINI_MODEL already set in ~/.bashrc, leaving it as-is."
 else
-    echo -n "Gemini model [default: gemini-2.5-flash-lite]: "
+    echo -n "Gemini model [default: gemini-3.5-flash-lite]: "
     read -r GEMINI_MODEL_INPUT
-    GEMINI_MODEL_INPUT="${GEMINI_MODEL_INPUT:-gemini-2.5-flash-lite}"
+    GEMINI_MODEL_INPUT="${GEMINI_MODEL_INPUT:-gemini-3.5-flash-lite}"
     echo "export GEMINI_MODEL=$GEMINI_MODEL_INPUT" >> "$BASHRC"
 fi
 
