@@ -51,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
 
     registry = build_registry()
     provider = GeminiProvider(config)
-    controller = Controller(config, registry, provider, session_id=args.resume)
+    controller = Controller(config, registry, provider, goal=args.goal, session_id=args.resume)
 
     print(f"Session:  {controller.session_id}")
     print(f"Goal:     {args.goal}")
@@ -60,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Log dir:  {controller.logger.session_dir}")
     print()
 
-    outcome = controller.run(args.goal)
+    outcome = controller.run()
 
     print()
     print(f"--- {outcome.status} ---")

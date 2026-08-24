@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,8 +31,14 @@ from pathlib import Path
 from .config import Config, load_config
 
 
-def _new_session_id() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+def _slugify(text: str, max_len: int = 40) -> str:
+    text = re.sub(r"[^a-z0-9]+", "-", text.lower().strip()).strip("-")
+    return text[:max_len].rstrip("-") or "untitled"
+
+
+def _new_session_id(goal: str | None = None) -> str:
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
+    return f"{timestamp}_{_slugify(goal)}" if goal else timestamp
 
 
 @dataclass

@@ -82,21 +82,27 @@ class RunOutcome:
 
 class Controller:
     def __init__(
-        self, config: Config, registry: ToolRegistry, provider: ModelProvider, session_id: str | None = None
+        self,
+        config: Config,
+        registry: ToolRegistry,
+        provider: ModelProvider,
+        goal: str,
+        session_id: str | None = None,
     ):
         self.config = config
         self.registry = registry
         self.provider = provider
+        self.goal = goal
         if "finish_task" not in registry.names():
             registry.register(FinishTaskTool())
 
-        self.session_id = session_id or _new_session_id()
+        self.session_id = session_id or _new_session_id(goal)
         self.logger = SessionLogger(self.config, session_id=self.session_id)
         self.iterations_used = 0
         self.budget = config.iteration_block
 
-    def run(self, goal: str) -> RunOutcome:
-        memory = Memory(self.config, goal=goal, session_id=self.session_id)
+    def run(self) -> RunOutcome:
+        memory = Memory(self.config, goal=self.goal, session_id=self.session_id)
         try:
             return self._loop(memory)
         except KeyboardInterrupt:
@@ -155,10 +161,14 @@ class Controller:
 
                 needed_confirmation = result.requires_confirmation
                 if needed_confirmation:
-                    if self._ask_confirm(call.name, result.output):
+                    approved, feedback = self._ask_confirm(call.name, result.output)
+                    if approved:
                         result = self.registry.call(call.name, self.config, **{**call.args, "confirmed": True})
                     else:
-                        result = ToolResult.fail(f"Human declined: {result.output}")
+                        reason = f"Human declined: {result.output}"
+                        if feedback:
+                            reason += f"\nHuman feedback: {feedback}"
+                        result = ToolResult.fail(reason)
 
                 summary = result.output if result.success else (result.error or "")
                 memory.add_tool_result(call.name, result.success, summary)
@@ -166,10 +176,12 @@ class Controller:
 
                 if call.name == "finish_task":
                     claimed_success = call.args.get("success", True)
-                    if self._ask_finish(call.args.get("summary", ""), claimed_success):
+                    accepted, feedback = self._ask_finish(call.args.get("summary", ""), claimed_success)
+                    if accepted:
                         self.logger.log_pause(f"human confirmed finish: {call.args.get('summary', '')}")
                         return RunOutcome(status="finished", summary=call.args.get("summary", ""))
-                    memory.add_user_note("[human] Not done yet — keep going.")
+                    note = f"[human] Not done yet. {feedback}" if feedback else "[human] Not done yet — keep going."
+                    memory.add_user_note(note)
                     self.logger.log_resume()
 
                 if needed_confirmation:
@@ -197,19 +209,31 @@ class Controller:
         print(f"Iteration budget ({self.budget}) reached.")
         return self._ask_yes_no(f"Run another {self.config.iteration_block} iterations?")
 
-    def _ask_confirm(self, tool_name: str, description: str) -> bool:
+    def _ask_feedback(self, prompt: str) -> str:
+        try:
+            return input(f"{prompt}\n> ").strip()
+        except EOFError:
+            return ""
+
+    def _ask_confirm(self, tool_name: str, description: str) -> tuple[bool, str]:
         print()
         print(f"CONFIRMATION NEEDED for {tool_name}:")
         print(f"  {description}")
-        return self._ask_yes_no("Proceed?")
+        if self._ask_yes_no("Proceed?"):
+            return True, ""
+        feedback = self._ask_feedback("Why not, or what should it do instead? (blank = just skip it)")
+        return False, feedback
 
-    def _ask_finish(self, summary: str, claimed_success: bool) -> bool:
+    def _ask_finish(self, summary: str, claimed_success: bool) -> tuple[bool, str]:
         print()
         print(self.logger.tail(30))
         print()
         print(f"Model believes the task is {'done' if claimed_success else 'stuck/failed'}:")
         print(f"  {summary}")
-        return self._ask_yes_no("Accept and stop here?")
+        if self._ask_yes_no("Accept and stop here?"):
+            return True, ""
+        feedback = self._ask_feedback("What's missing, or what should happen next? (blank = just keep going)")
+        return False, feedback
 
 
 if __name__ == "__main__":
@@ -255,11 +279,17 @@ if __name__ == "__main__":
         ]
     )
 
-    controller = Controller(config, registry, script, session_id="controller_sanity_check")
+    controller = Controller(
+        config,
+        registry,
+        script,
+        goal="Write hello.txt and promote the staged outside file, then finish.",
+        session_id="controller_sanity_check",
+    )
 
     print("This will really ask you twice: once to approve the promote_file confirmation,")
     print("once to accept finish_task's claim that the goal is done. Type y both times.\n")
-    outcome = controller.run("Write hello.txt and promote the staged outside file, then finish.")
+    outcome = controller.run()
 
     print()
     print("Outcome:", outcome)
