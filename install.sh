@@ -84,3 +84,5 @@ echo ""
 echo "  source ~/.bashrc"
 echo "  cd $REPO_DIR"
 echo "  python3 -m files.main --goal \"your goal here\""
+
+source ~/.bashrc
