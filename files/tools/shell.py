@@ -2,26 +2,30 @@
 agent/tools/shell.py
 
 run_shell — the raw escape hatch. Executes `bash -c <command>` with cwd
-forced to WRITE_ROOT, no output filtering, no dangerous-pattern gating.
-Deliberate: everything else in this project enforces boundaries in
-Python; this tool mostly doesn't, by explicit choice.
+forced to WRITE_ROOT, no output filtering. Deliberate: everything else
+in this project enforces boundaries in Python; this tool mostly
+doesn't, by explicit choice — except the two checks below.
 
-One exception, added after real on-device testing showed the gap in
-practice: ENABLE_EXTERNAL_WRITE_CONFIRM (on by default) pauses for a
-real human y/n when a command looks like it writes outside WRITE_ROOT
-but inside SHARED_ROOT — the zone where real files live. This is a
-heuristic (permissions.find_external_write_targets), not a hard
-guarantee like check_write: relative-path tricks, variable-built paths,
-and anything routed through an interpreter other than find -exec can
-still slip through unflagged. Reads (ls, cat, find, grep, ...) are never
-flagged — that stays exactly as unrestricted as it always was.
+ENABLE_EXTERNAL_WRITE_CONFIRM (on by default), added after real
+on-device testing showed the gap in practice: pauses for a real human
+y/n when a command looks like it writes outside WRITE_ROOT but inside
+SHARED_ROOT — the zone where real files live. This is a heuristic
+(permissions.find_external_write_targets), not a hard guarantee like
+check_write: relative-path tricks, variable-built paths, and anything
+routed through an interpreter other than find -exec can still slip
+through unflagged. Reads (ls, cat, find, grep, ...) are never flagged —
+that stays exactly as unrestricted as it always was.
 
-ENABLE_CATASTROPHIC_CHECK below is a SEPARATE, still OFF-by-default
-toggle for a different, narrower thing: a handful of patterns that are
-never a legitimate build step regardless of location (rm -rf /, mkfs,
-dd of=/dev/*). It would NOT have caught the external-write case above —
+ENABLE_CATASTROPHIC_CHECK (on by default): a hard block, not a
+confirmation prompt, for a handful of patterns that are never a
+legitimate build step regardless of location (rm -rf /, mkfs, dd
+of=/dev/*). It would NOT have caught the external-write case above —
 mkdir/cp aren't catastrophic, they're just out of scope. Two different
-problems, two different checks.
+problems, two different checks. Like everything else path-based in
+this project, is_catastrophic_command is a string-pattern match, not a
+sandbox — obfuscated or indirect invocations of the same commands can
+still slip through. It blocks the honest/accidental case, not a
+determined adversarial one.
 """
 
 from __future__ import annotations
@@ -32,7 +36,7 @@ from ..config import Config
 from ..permissions import find_external_write_targets, is_catastrophic_command
 from .base import Tool, ToolResult
 
-ENABLE_CATASTROPHIC_CHECK = False
+ENABLE_CATASTROPHIC_CHECK = True
 ENABLE_EXTERNAL_WRITE_CONFIRM = True
 _TIMEOUT_SECONDS = 300  # a single command running this long is almost certainly stuck
 
@@ -40,11 +44,13 @@ _TIMEOUT_SECONDS = 300  # a single command running this long is almost certainly
 class RunShellTool(Tool):
     name = "run_shell"
     description = (
-        "Run a shell command via bash -c, cwd forced to WRITE_ROOT. Raw — no dangerous-command "
-        "gating. If the command looks like it writes outside WRITE_ROOT (mkdir/cp/mv/rm/dd/tee/"
-        "redirects/find -exec targeting an external path), it pauses for human confirmation first "
-        "— call again with confirmed=true only after that's been granted. IMPORTANT: relative "
-        "paths here resolve against WRITE_ROOT (this tool's cwd) — a DIFFERENT base than "
+        "Run a shell command via bash -c, cwd forced to WRITE_ROOT. Commands matching a small "
+        "hardcoded catastrophic-pattern list (rm -rf /, mkfs, dd of=/dev/*, etc.) are refused "
+        "outright — this is a pattern match, not a sandbox, and can be routed around. If the "
+        "command looks like it writes outside WRITE_ROOT (mkdir/cp/mv/rm/dd/tee/redirects/find "
+        "-exec targeting an external path), it pauses for human confirmation first — call again "
+        "with confirmed=true only after that's been granted. IMPORTANT: relative paths here "
+        "resolve against WRITE_ROOT (this tool's cwd) — a DIFFERENT base than "
         "read_file/write_file/list_directory/etc., which resolve relative paths against READ_ROOT "
         "instead. The same relative name (e.g. 'core') can mean two different real locations "
         "depending on which tool you used it with. When in doubt, use absolute paths, or run "
@@ -132,8 +138,8 @@ if __name__ == "__main__":
     print("pipes work (raw bash, not shelled through anything else) ->",
           registry.call("run_shell", config, command="printf 'b\\na\\nc\\n' | sort"))
     print()
-    print("catastrophic check is OFF by default — this is NOT refused right now:")
-    print(registry.call("run_shell", config, command="echo 'a real rm -rf / would run right now if you typed it'"))
+    print("catastrophic check is ON by default — this SHOULD be refused right now:")
+    print(registry.call("run_shell", config, command="rm -rf /"))
 
     print()
     print("external-write check is ON by default — this SHOULD pause for confirmation:")
