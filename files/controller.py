@@ -103,6 +103,9 @@ class Controller:
 
     def run(self) -> RunOutcome:
         memory = Memory(self.config, goal=self.goal, session_id=self.session_id)
+        preview = self.provider.context_preview()
+        if preview:
+            self.logger.log("system_context", text=preview)
         try:
             return self._loop(memory)
         except KeyboardInterrupt:

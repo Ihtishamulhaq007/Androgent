@@ -31,6 +31,7 @@ import json
 import re
 import urllib.error
 import urllib.request
+from pathlib import Path
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
@@ -60,6 +61,15 @@ class ModelProvider(ABC):
         NOT Gemini's. Each provider translates to/from its own API shape.
         tools_schema is ToolRegistry.schemas() — this project's lowercase
         JSON-schema style, also translated per-provider."""
+
+    def context_preview(self) -> str | None:
+        """Optional: a human-readable preview of whatever non-goal context
+        this provider injects into every request (system instruction,
+        device paths, preferences, etc.), for controller.py to log once at
+        session start. Default: nothing to preview. Real content is what
+        makes 'what does the model actually see' genuinely inspectable
+        instead of just documented in source code."""
+        return None
 
 
 class FakeModelProvider(ModelProvider):
@@ -171,6 +181,89 @@ def _extract_retry_seconds(message: str, default: float = 30.0) -> float:
     return default
 
 
+_MAX_CAPABILITIES_CHARS = 2000
+_MAX_PREFERENCES_CHARS = 1500
+_MAX_LISTING_ENTRIES = 40
+
+
+def _top_level_listing(path: Path, limit: int = _MAX_LISTING_ENTRIES) -> str:
+    """Non-recursive, immediate children only — cheap and always current
+    since this is rebuilt fresh on every call, unlike a cached full tree
+    that would go stale. Bounded cost: just names, no recursion."""
+    try:
+        names = sorted(p.name for p in path.iterdir())
+    except OSError:
+        return "(unavailable)"
+    if len(names) > limit:
+        names = names[:limit] + [f"... ({len(names) - limit} more not shown)"]
+    return ", ".join(names) if names else "(empty)"
+
+
+def _build_system_instruction(config: Config) -> str:
+    """Built fresh on every call — reads capabilities_path, preferences_path,
+    and both listings live, so anything that changes mid-run is visible on
+    the very next model call, not just in a future session."""
+    capabilities = "(nothing recorded yet)"
+    if config.capabilities_path.is_file():
+        text = config.capabilities_path.read_text(encoding="utf-8").strip()
+        if text:
+            capabilities = text
+            if len(capabilities) > _MAX_CAPABILITIES_CHARS:
+                capabilities = capabilities[:_MAX_CAPABILITIES_CHARS] + "\n... (truncated, file is longer)"
+
+    preferences = "(none set — see preferences_path below)"
+    if config.preferences_path.is_file():
+        raw = "\n".join(
+            line for line in config.preferences_path.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ).strip()
+        if raw:
+            preferences = raw
+            if len(preferences) > _MAX_PREFERENCES_CHARS:
+                preferences = preferences[:_MAX_PREFERENCES_CHARS] + "\n... (truncated, file is longer)"
+
+    return f"""You are an autonomous coding/task agent running inside Termux on an Android phone. You control the device directly through shell commands and file tools — no human is typing commands for you; you decide and act, pausing only at explicit confirmation points the tools themselves trigger.
+
+DEVICE LAYOUT (real paths on this device, not examples):
+  READ_ROOT  = {config.shared_root}  (read anywhere under here — the whole shared storage tree)
+  WRITE_ROOT = {config.write_root}  (the ONLY place structured write/delete tools are allowed to touch)
+  STAGE_ROOT = {config.stage_root}  (temp staging area — see stage_file/promote_file for editing files outside WRITE_ROOT)
+
+READ_ROOT top level:  {_top_level_listing(config.shared_root)}
+WRITE_ROOT top level: {_top_level_listing(config.write_root)}
+(Non-recursive, current as of this call — use list_directory/find_files/run_shell to go deeper. This exists so you don't have to spend several tool calls just discovering top-level structure before starting real work.)
+
+PATH GOTCHA — this has caused a real mistake before, read carefully:
+relative paths mean DIFFERENT things depending on the tool. read_file,
+write_file, append_file, list_directory, find_files, grep, stage_file,
+promote_file, and delete_file all resolve relative paths against
+READ_ROOT — include the "termux" segment (e.g. "termux/notes.txt") to
+land inside WRITE_ROOT. run_shell is the ONE exception: its cwd is
+WRITE_ROOT, so a relative path there means something else entirely. If
+the goal text itself contains a [Context: the user's terminal was at
+'X'...] note, relative references IN THE GOAL mean relative to X — not
+WRITE_ROOT, not READ_ROOT. When genuinely unsure, use absolute paths.
+
+KNOWN CAPABILITIES — installed tools/packages AND reusable scripts
+already written (check WRITE_ROOT's listing above for existing .py/.sh
+files before writing a new one that already exists). Lines starting with
+"(auto-recorded)" were logged automatically when a package install
+succeeded; everything else was seeded or hand-written by a past run:
+{capabilities}
+
+When you install something new, OR write a script/tool that could
+reasonably be reused later, append a line to {config.capabilities_path}
+(via append_file) in the "capability :: dependency-or-script-path"
+format — short and factual — so future runs don't have to rediscover or
+rewrite it from scratch.
+
+USER PREFERENCES — standing instructions from the human, written
+directly by them (not you) at {config.preferences_path}. Follow these
+unless they'd conflict with a safety boundary (WRITE_ROOT, confirmation
+gates, etc.), which always win regardless of preference:
+{preferences}"""
+
+
 class GeminiProvider(ModelProvider):
     _ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
@@ -178,9 +271,15 @@ class GeminiProvider(ModelProvider):
         self.config = config
         self.timeout_seconds = timeout_seconds
 
+    def context_preview(self) -> str | None:
+        return _build_system_instruction(self.config)
+
     def generate(self, history: list[dict], tools_schema: list[dict]) -> ModelResponse:
         try:
-            payload = {"contents": _history_to_gemini(history)}
+            payload = {
+                "contents": _history_to_gemini(history),
+                "systemInstruction": {"parts": [{"text": _build_system_instruction(self.config)}]},
+            }
             if tools_schema:
                 payload["tools"] = _tools_to_gemini(tools_schema)
 

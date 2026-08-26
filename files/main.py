@@ -16,10 +16,12 @@ same session_id; nothing extra to wire up.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 from .config import ConfigError, load_config
 from .controller import Controller
+from .logger import _new_session_id
 from .model import GeminiProvider
 from .tools.filesystem import ALL_TOOLS as FILESYSTEM_TOOLS
 from .tools.git import ALL_TOOLS as GIT_TOOLS
@@ -51,7 +53,20 @@ def main(argv: list[str] | None = None) -> int:
 
     registry = build_registry()
     provider = GeminiProvider(config)
-    controller = Controller(config, registry, provider, goal=args.goal, session_id=args.resume)
+
+    goal = args.goal
+    invoked_from = os.environ.get("AGENT_INVOKED_FROM")
+    if invoked_from:
+        goal = (
+            f"[Context: the user's terminal was at '{invoked_from}' when they gave this goal. "
+            f"If the goal below uses relative references like '.', '..', or '../something', "
+            f"they mean it relative to '{invoked_from}' — NOT relative to WRITE_ROOT — since "
+            f"that's the directory the user was actually standing in.]\n{args.goal}"
+        )
+
+    controller = Controller(
+        config, registry, provider, goal=goal, session_id=args.resume or _new_session_id(args.goal)
+    )
 
     print(f"Session:  {controller.session_id}")
     print(f"Goal:     {args.goal}")

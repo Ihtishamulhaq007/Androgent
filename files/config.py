@@ -17,23 +17,39 @@ Optional environment variables:
                             creates).
     AGENT_ITERATION_BLOCK  Iteration budget per run, and size of each
                             extension offered when it runs out. Default 40.
-    AGENT_LOG_DIR           Overrides log_dir directly. Rarely needed.
 
 Derived, not configurable:
-    write_root = <shared_root>/termux      WRITE_ROOT
-    stage_root = <write_root>/temp          staging area for edits to
-                                              files that live outside
-                                              write_root
-    log_dir    = <install_dir>/logs         runtime logs, next to wherever
-                                              this repo was cloned — NOT
-                                              under write_root, so logs
-                                              stay put no matter what
-                                              AGENT_SHARED_ROOT is set to
+    write_root        = <shared_root>/termux      WRITE_ROOT
+    stage_root        = <write_root>/temp          staging area for edits to
+                                                     files that live outside
+                                                     write_root
+    log_dir           = <write_root>/agent/logs    runtime logs — NOT the
+                                                     same "agent" as this
+                                                     source package, just a
+                                                     coincidence of naming
+    capabilities_path = <write_root>/agent/capabilities.txt
+                          Persistent (not per-session) knowledge the agent
+                          reads AND writes: "capability :: dependency"
+                          lines describing what's installed and what it
+                          enables (e.g. "convert audio/video :: ffmpeg").
+                          Seeded with a quick auto-detect on first run;
+                          the agent is expected to append to it going
+                          forward via the normal append_file tool.
+    preferences_path   = <write_root>/agent/preferences.txt
+                          100% user-authored, never auto-modified by the
+                          agent. Free-text standing instructions/
+                          preferences ("prefer ffmpeg over X", "ask
+                          before touching Documents/Official"), included
+                          in every request's system instruction. This is
+                          the human-editable, human-readable window into
+                          what gets fed to the model beyond the literal
+                          goal text.
 """
 
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -51,6 +67,8 @@ class Config:
     gemini_model: str
     iteration_block: int
     log_dir: Path
+    capabilities_path: Path
+    preferences_path: Path
 
     def safe_summary(self) -> dict:
         """Config as a dict with the API key redacted — safe to log or print."""
@@ -61,10 +79,68 @@ class Config:
             "write_root": str(self.write_root),
             "stage_root": str(self.stage_root),
             "log_dir": str(self.log_dir),
+            "capabilities_path": str(self.capabilities_path),
+            "preferences_path": str(self.preferences_path),
             "gemini_model": self.gemini_model,
             "iteration_block": self.iteration_block,
             "gemini_api_key": redacted,
         }
+
+
+# A small, deliberately short list of common Termux tools worth knowing about
+# on sight. Not exhaustive — the point is a cheap baseline, not completeness.
+# The agent is expected to grow this file itself over time via append_file.
+_KNOWN_TOOLS = {
+    "git": "version control",
+    "ffmpeg": "convert/process audio and video",
+    "yt-dlp": "download video/audio from YouTube and other sites",
+    "pandoc": "convert between document formats",
+    "pip": "install Python packages",
+    "node": "run JavaScript/Node tooling",
+    "npm": "install Node packages",
+    "convert": "ImageMagick — image conversion/processing",
+    "jq": "parse/filter JSON on the command line",
+    "curl": "make HTTP requests",
+    "wget": "download files over HTTP",
+    "rsync": "sync/copy files efficiently",
+    "tar": "archive/extract .tar files",
+    "unzip": "extract .zip files",
+    "sqlite3": "query SQLite databases",
+}
+
+
+def _seed_capabilities_file(path: Path) -> None:
+    if path.exists():
+        return
+    lines = [
+        "# Agent capabilities — what's installed, what it enables.",
+        "# Format: capability :: dependency",
+        "# Edit freely, human or agent. The agent reads this at the start of",
+        "# every run and is expected to append a line here whenever it installs",
+        "# something new or discovers a non-obvious working approach, so future",
+        "# runs don't have to rediscover it from scratch.",
+        "",
+    ]
+    for tool, description in _KNOWN_TOOLS.items():
+        if shutil.which(tool):
+            lines.append(f"{description} :: {tool}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _seed_preferences_file(path: Path) -> None:
+    if path.exists():
+        return
+    template = """# Your standing preferences for the agent — plain English, edit freely.
+# Included in every request the agent makes, alongside device paths and
+# capabilities. The agent never writes to this file itself; it's yours.
+#
+# Examples (delete these, replace with your own):
+#   Prefer ffmpeg over other tools for audio/video conversion.
+#   Ask before touching anything under Documents/Official.
+#   Keep generated filenames lowercase with underscores, no spaces.
+#   When creating scripts, put them in termux/py, not scattered around.
+"""
+    path.write_text(template, encoding="utf-8")
 
 
 def load_config() -> Config:
@@ -80,9 +156,14 @@ def load_config() -> Config:
     stage_root = write_root / "temp"
     stage_root.mkdir(parents=True, exist_ok=True)
 
-    install_dir = Path(__file__).resolve().parent.parent
-    log_dir = Path(os.environ.get("AGENT_LOG_DIR", str(install_dir / "logs"))).expanduser().resolve()
+    log_dir = write_root / "agent" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
+
+    capabilities_path = write_root / "agent" / "capabilities.txt"
+    _seed_capabilities_file(capabilities_path)
+
+    preferences_path = write_root / "agent" / "preferences.txt"
+    _seed_preferences_file(preferences_path)
 
     return Config(
         shared_root=shared_root,
@@ -92,6 +173,8 @@ def load_config() -> Config:
         gemini_model=_require_env("GEMINI_MODEL"),
         iteration_block=_positive_int_env("AGENT_ITERATION_BLOCK", default=40),
         log_dir=log_dir,
+        capabilities_path=capabilities_path,
+        preferences_path=preferences_path,
     )
 
 
