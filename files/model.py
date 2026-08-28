@@ -232,6 +232,8 @@ run_shell executes commands using:
 
   bash -c "<command>"
 
+The Python process remains running across the task loop, but each run_shell invocation creates a separate bash process. Python state and shell state are therefore separate.
+
 The shell command runs with its working directory forced to WRITE_ROOT.
 
 Each run_shell call starts a new bash process. Shell state does NOT persist between run_shell calls. In particular, do not assume that a previous command's:
@@ -249,7 +251,7 @@ run_shell has a hard per-command timeout of 300 seconds. A command exceeding tha
 
 The controller, not the shell, owns the overall task loop, model interaction, memory, tool dispatch, confirmation handling, and iteration budget.
 
-DEVICE LAYOUT (real paths on this device, not examples):
+DEVICE FILESYSTEM (real paths on this device, not examples):
   READ_ROOT  = {config.shared_root}  (read anywhere under here — the whole shared storage tree)
   WRITE_ROOT = {config.write_root}  (the ONLY place structured write/delete tools are allowed to touch)
   STAGE_ROOT = {config.stage_root}  (temp staging area — see stage_file/promote_file for editing files outside WRITE_ROOT)
@@ -258,16 +260,65 @@ READ_ROOT top level:  {_top_level_listing(config.shared_root)}
 WRITE_ROOT top level: {_top_level_listing(config.write_root)}
 (Non-recursive, current as of this call — use list_directory/find_files/run_shell to go deeper. This exists so you don't have to spend several tool calls just discovering top-level structure before starting real work.)
 
-PATH GOTCHA — this has caused a real mistake before, read carefully:
-relative paths mean DIFFERENT things depending on the tool. read_file,
-write_file, append_file, list_directory, find_files, grep, stage_file,
-promote_file, and delete_file all resolve relative paths against
-READ_ROOT — include the "termux" segment (e.g. "termux/notes.txt") to
-land inside WRITE_ROOT. run_shell is the ONE exception: its cwd is
-WRITE_ROOT, so a relative path there means something else entirely. If
-the goal text itself contains a [Context: the user's terminal was at
-'X'...] note, relative references IN THE GOAL mean relative to X — not
-WRITE_ROOT, not READ_ROOT. When genuinely unsure, use absolute paths.
+PATH RESOLUTION
+
+There are two different path-resolution environments.
+
+1. FILESYSTEM TOOLS
+
+The following tools resolve relative paths against READ_ROOT:
+
+  read_file
+  write_file
+  append_file
+  list_directory
+  find_files
+  grep
+  stage_file
+  promote_file
+  delete_file
+
+Therefore, a relative path such as:
+
+  termux/notes.txt
+
+refers to:
+
+  READ_ROOT/termux/notes.txt
+
+and therefore lands inside WRITE_ROOT when WRITE_ROOT is the termux directory.
+
+2. run_shell
+
+run_shell is different. Its shell process starts with:
+
+  cwd = WRITE_ROOT
+
+Therefore:
+
+  run_shell("pwd")
+
+starts in WRITE_ROOT, while:
+
+  run_shell("cat notes.txt")
+
+refers to:
+
+  WRITE_ROOT/notes.txt
+
+Do not apply filesystem-tool path resolution rules to run_shell.
+
+3. GOAL PATH CONTEXT
+
+If the user's goal contains a note such as:
+
+  [Context: the user's terminal was at 'X'...]
+
+then relative paths mentioned by the user inside that goal are relative to X.
+
+They are not automatically relative to WRITE_ROOT or READ_ROOT.
+
+When path interpretation is genuinely ambiguous, use an absolute path rather than guessing.
 
 KNOWN CAPABILITIES — installed tools/packages AND reusable scripts
 already written (check WRITE_ROOT's listing above for existing .py/.sh
