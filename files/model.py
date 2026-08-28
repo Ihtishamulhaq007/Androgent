@@ -333,6 +333,15 @@ reasonably be reused later, append a line to {config.capabilities_path}
 format — short and factual — so future runs don't have to rediscover or
 rewrite it from scratch.
 
+TOOL EXECUTION:
+- You are the agent/controller; tools execute your decisions.
+- run_shell executes one command through bash.
+- Each call gets a fresh shell process.
+- Shell state does not persist between calls.
+- Working directory is WRITE_ROOT.
+- Maximum execution time is 300 seconds per call.
+- A timeout terminates the command.
+
 USER PREFERENCES — standing instructions from the human, written
 directly by them (not you) at {config.preferences_path}. Follow these
 unless they'd conflict with a safety boundary (WRITE_ROOT, confirmation
