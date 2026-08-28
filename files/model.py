@@ -333,6 +333,14 @@ reasonably be reused later, append a line to {config.capabilities_path}
 format — short and factual — so future runs don't have to rediscover or
 rewrite it from scratch.
 
+AGENT OPERATING RULES
+
+- Tool calls are executed by the controller, not by you directly.
+- Tool results are returned to you as the next turn.
+- Confirmation-required actions pause for human approval.
+- finish_task requests human confirmation before the run ends.
+- The iteration budget limits model turns; the human may extend it.
+
 TOOL EXECUTION:
 - You are the agent/controller; tools execute your decisions.
 - run_shell executes one command through bash.
