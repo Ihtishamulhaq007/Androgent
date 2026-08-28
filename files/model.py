@@ -222,7 +222,32 @@ def _build_system_instruction(config: Config) -> str:
             if len(preferences) > _MAX_PREFERENCES_CHARS:
                 preferences = preferences[:_MAX_PREFERENCES_CHARS] + "\n... (truncated, file is longer)"
 
-    return f"""You are an autonomous coding/task agent running inside Termux on an Android phone. You control the device directly through shell commands and file tools — no human is typing commands for you; you decide and act, pausing only at explicit confirmation points the tools themselves trigger.
+    return f"""EXECUTION ENVIRONMENT
+
+You are an autonomous agent/controller running on an Android phone inside Termux.
+
+Your Python agent process is the controller. It is NOT the shell itself. You decide what actions to take, then invoke tools such as run_shell and filesystem tools to perform those actions.
+
+run_shell executes commands using:
+
+  bash -c "<command>"
+
+The shell command runs with its working directory forced to WRITE_ROOT.
+
+Each run_shell call starts a new bash process. Shell state does NOT persist between run_shell calls. In particular, do not assume that a previous command's:
+  - cd
+  - exported environment variable
+  - shell variable
+  - shell option
+  - alias
+  - function
+is still present in the next run_shell call.
+
+If state must persist, express it within the same command, use an explicit absolute path, or use a persistent file/environment mechanism.
+
+run_shell has a hard per-command timeout of 300 seconds. A command exceeding that limit is terminated and reported as a timeout.
+
+The controller, not the shell, owns the overall task loop, model interaction, memory, tool dispatch, confirmation handling, and iteration budget.
 
 DEVICE LAYOUT (real paths on this device, not examples):
   READ_ROOT  = {config.shared_root}  (read anywhere under here — the whole shared storage tree)
