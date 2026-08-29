@@ -26,6 +26,19 @@ this project, is_catastrophic_command is a string-pattern match, not a
 sandbox — obfuscated or indirect invocations of the same commands can
 still slip through. It blocks the honest/accidental case, not a
 determined adversarial one.
+
+ENABLE_NETWORK_EGRESS_CONFIRM (on by default), added after a real
+session sent personal audio to a third-party transcription API with no
+confirmation gate at all. Same shape as the external-write check: pauses
+for human y/n when a command looks like it sends data off-device
+(curl/wget/ssh/scp/nc, or an inline python/node one-liner importing
+requests/urllib/socket/etc — see permissions.find_network_egress_targets).
+Deliberately does not try to distinguish "just fetching a URL" from
+"uploading local content" — both are flagged, because the read/write
+distinction that matters for the write gate doesn't hold here: a GET
+can still leak local data via a query string or header built from file
+contents. Heuristic, not a sandbox — routes around it exactly like the
+write check can be routed around.
 """
 
 from __future__ import annotations
@@ -33,11 +46,16 @@ from __future__ import annotations
 import subprocess
 
 from ..config import Config
-from ..permissions import find_external_write_targets, is_catastrophic_command
+from ..permissions import (
+    find_external_write_targets,
+    find_network_egress_targets,
+    is_catastrophic_command,
+)
 from .base import Tool, ToolResult
 
 ENABLE_CATASTROPHIC_CHECK = True
 ENABLE_EXTERNAL_WRITE_CONFIRM = True
+ENABLE_NETWORK_EGRESS_CONFIRM = True
 _TIMEOUT_SECONDS = 300  # a single command running this long is almost certainly stuck
 
 
@@ -48,8 +66,10 @@ class RunShellTool(Tool):
         "hardcoded catastrophic-pattern list (rm -rf /, mkfs, dd of=/dev/*, etc.) are refused "
         "outright — this is a pattern match, not a sandbox, and can be routed around. If the "
         "command looks like it writes outside WRITE_ROOT (mkdir/cp/mv/rm/dd/tee/redirects/find "
-        "-exec targeting an external path), it pauses for human confirmation first — call again "
-        "with confirmed=true only after that's been granted. IMPORTANT: relative paths here "
+        "-exec targeting an external path), or looks like it sends data off-device (curl/wget/ssh/"
+        "scp/nc, or an inline python/node snippet using requests/urllib/socket/etc), it pauses for "
+        "human confirmation first — call again with confirmed=true only after that's been granted. "
+        "IMPORTANT: relative paths here "
         "resolve against WRITE_ROOT (this tool's cwd) — a DIFFERENT base than "
         "read_file/write_file/list_directory/etc., which resolve relative paths against READ_ROOT "
         "instead. The same relative name (e.g. 'core') can mean two different real locations "
@@ -92,6 +112,16 @@ class RunShellTool(Tool):
                     f"This command looks like it writes outside WRITE_ROOT: {', '.join(external_targets)}\n"
                     f"Command: {command}",
                     external_targets=external_targets,
+                    command=command,
+                )
+
+        if ENABLE_NETWORK_EGRESS_CONFIRM and not confirmed:
+            network_targets = find_network_egress_targets(command)
+            if network_targets:
+                return ToolResult.needs_confirmation(
+                    f"This command looks like it sends data off-device: {', '.join(network_targets)}\n"
+                    f"Command: {command}",
+                    network_targets=network_targets,
                     command=command,
                 )
         try:
@@ -153,3 +183,7 @@ if __name__ == "__main__":
         command=f"mkdir -p {config.shared_root / 'shell_check_external'} && echo hi > {external_path}",
         confirmed=True,
     ))
+
+    print()
+    print("network-egress check is ON by default — this SHOULD pause for confirmation:")
+    print(registry.call("run_shell", config, command="curl -s https://example.com"))
