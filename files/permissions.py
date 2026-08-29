@@ -176,23 +176,28 @@ _PY_NETWORK_HINT = re.compile(
     r"\b(requests\.(get|post|put|patch)|urllib\.request|socket\.socket|"
     r"http\.client|aiohttp|httpx)\b"
 )
+_NODE_NETWORK_HINT = re.compile(
+    r"\b(fetch|https?\.request|https?\.get|net\.connect|tls\.connect|dgram\.createSocket)\b"
+)
 
 
 def find_network_egress_targets(command: str) -> list[str]:
     """Heuristic, best-effort — NOT a hard guarantee. Flags shell commands
     that look like they send data off-device: curl/wget/ssh/scp/nc/etc.,
-    or an inline python/node one-liner that imports a known HTTP/socket
-    client. This does NOT distinguish read (fetching a URL) from write
-    (uploading a file) — both are flagged, because a GET can still leak
-    data via query params/headers built from local content, and because
-    the risk this exists for (send_read_data_off_device) is about the
-    destination being reachable, not the HTTP verb.
+    an inline python one-liner that imports a known HTTP/socket client, or
+    an inline node one-liner that calls a known HTTP/net/tls/dgram API.
+    This does NOT distinguish read (fetching a URL) from write (uploading
+    a file) — both are flagged, because a GET can still leak data via
+    query params/headers built from local content, and because the risk
+    this exists for (send_read_data_off_device) is about the destination
+    being reachable, not the HTTP verb.
 
     Known gaps, on purpose: this is a substring/token match, not a parser.
     A command that builds a curl invocation from a variable, pipes through
-    an interpreter this doesn't recognize, or uses a network tool not in
-    the list, slips through unflagged. Same tier of protection as
-    find_external_write_targets — a speed bump for the honest/common
+    an interpreter this doesn't recognize, or uses a network tool/API not
+    in either list (e.g. Node's XMLHttpRequest, WebSocket, axios without
+    the module prefix), slips through unflagged. Same tier of protection
+    as find_external_write_targets — a speed bump for the honest/common
     case, not a sandbox."""
     for segment in re.split(r"&&|\|\||;|\|", command):
         try:
@@ -202,7 +207,9 @@ def find_network_egress_targets(command: str) -> list[str]:
         if tokens and tokens[0] in _NETWORK_COMMANDS:
             return sorted({tokens[0]})
     if _PY_NETWORK_HINT.search(command):
-        return ["python/node network call (requests/urllib/socket/http.client/aiohttp/httpx)"]
+        return ["python network call (requests/urllib/socket/http.client/aiohttp/httpx)"]
+    if _NODE_NETWORK_HINT.search(command):
+        return ["node network call (fetch/http/net/tls/dgram)"]
     return []
 
 

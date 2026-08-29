@@ -31,9 +31,11 @@ ENABLE_NETWORK_EGRESS_CONFIRM (on by default), added after a real
 session sent personal audio to a third-party transcription API with no
 confirmation gate at all. Same shape as the external-write check: pauses
 for human y/n when a command looks like it sends data off-device
-(curl/wget/ssh/scp/nc, or an inline python/node one-liner importing
-requests/urllib/socket/etc — see permissions.find_network_egress_targets).
-Deliberately does not try to distinguish "just fetching a URL" from
+(curl/wget/ssh/scp/nc, an inline python one-liner importing
+requests/urllib/socket/etc, or an inline node one-liner calling
+fetch/http.request/net.connect/etc — see
+permissions.find_network_egress_targets). Deliberately does not try to
+distinguish "just fetching a URL" from
 "uploading local content" — both are flagged, because the read/write
 distinction that matters for the write gate doesn't hold here: a GET
 can still leak local data via a query string or header built from file
@@ -67,8 +69,9 @@ class RunShellTool(Tool):
         "outright — this is a pattern match, not a sandbox, and can be routed around. If the "
         "command looks like it writes outside WRITE_ROOT (mkdir/cp/mv/rm/dd/tee/redirects/find "
         "-exec targeting an external path), or looks like it sends data off-device (curl/wget/ssh/"
-        "scp/nc, or an inline python/node snippet using requests/urllib/socket/etc), it pauses for "
-        "human confirmation first — call again with confirmed=true only after that's been granted. "
+        "scp/nc, an inline python snippet using requests/urllib/socket/etc, or an inline node "
+        "snippet using fetch/http.request/net.connect/etc), it pauses for human confirmation "
+        "first — call again with confirmed=true only after that's been granted. "
         "IMPORTANT: relative paths here "
         "resolve against WRITE_ROOT (this tool's cwd) — a DIFFERENT base than "
         "read_file/write_file/list_directory/etc., which resolve relative paths against READ_ROOT "
