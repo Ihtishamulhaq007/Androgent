@@ -115,48 +115,61 @@ class Controller:
 
     def _loop(self, memory: Memory) -> RunOutcome:
         while True:
-            if self.iterations_used >= self.budget:
-                if not self._ask_extend():
-                    return RunOutcome(status="budget_declined")
-                self.budget += self.config.iteration_block
-
-            self.iterations_used += 1
-            response = self.provider.generate(memory.to_list(), self.registry.schemas())
-
-            if response.error == "No local model":
-                self.logger.log_error("No local model — connectivity lost")
-                if not self._ask_yes_no("No local model (connectivity lost). Retry?"):
-                    return RunOutcome(status="no_connectivity")
-                self.iterations_used -= 1  # don't burn budget on a connectivity retry
+            try:
+                outcome = self._step(memory)
+            except KeyboardInterrupt:
+                self._handle_pause(memory)  # re-raises on a second Ctrl+C to really cancel
                 continue
+            if outcome is not None:
+                return outcome
 
-            if response.retry_after_seconds is not None:
-                wait = response.retry_after_seconds + 1.0  # small buffer past what Google reports
-                self.logger.log("rate_limited", wait_seconds=wait, message=response.error)
-                print(f"\nRate limited — waiting {wait:.0f}s before retrying (free tier: 15 requests/minute)...")
-                time.sleep(wait)
-                self.iterations_used -= 1  # a wait-and-retry isn't a real turn, don't burn budget on it
-                continue
+    def _step(self, memory: Memory) -> RunOutcome | None:
+        """One trip through the loop body. Returns a RunOutcome to end the
+        run, or None to have _loop immediately call this again. Split out
+        from _loop so Ctrl+C during generate() or a tool call unwinds to
+        one single except site instead of being caught mid-tool-call."""
+        if self.iterations_used >= self.budget:
+            if not self._ask_extend():
+                return RunOutcome(status="budget_declined")
+            self.budget += self.config.iteration_block
 
-            if response.error:
-                self.logger.log_error(response.error)
-                if _looks_like_context_limit(response.error):
-                    print()
-                    print(self.logger.tail(20))
-                    print()
-                    print("This looks like it hit the model's context limit — retrying won't fix it.")
-                    print("Consider calling memory.summarize(...) before continuing.")
-                    if not self._ask_yes_no("Try again anyway?"):
-                        return RunOutcome(status="context_limit")
-                    continue
-                memory.add_user_note(f"[error] {response.error}")
-                continue
+        self.iterations_used += 1
+        response = self.provider.generate(memory.to_list(), self.registry.schemas())
 
-            if response.text:
-                memory.add_model_response(response.text)
-                self.logger.log_model_response(response.text)
+        if response.error == "No local model":
+            self.logger.log_error("No local model — connectivity lost")
+            if not self._ask_yes_no("No local model (connectivity lost). Retry?"):
+                return RunOutcome(status="no_connectivity")
+            self.iterations_used -= 1  # don't burn budget on a connectivity retry
+            return None  # ends this call to _step; _loop invokes it again
 
-            for call in response.tool_calls:
+        if response.retry_after_seconds is not None:
+            wait = response.retry_after_seconds + 1.0  # small buffer past what Google reports
+            self.logger.log("rate_limited", wait_seconds=wait, message=response.error)
+            print(f"\nRate limited — waiting {wait:.0f}s before retrying (free tier: 15 requests/minute)...")
+            time.sleep(wait)
+            self.iterations_used -= 1  # a wait-and-retry isn't a real turn, don't burn budget on it
+            return None  # ends this call to _step; _loop invokes it again
+
+        if response.error:
+            self.logger.log_error(response.error)
+            if _looks_like_context_limit(response.error):
+                print()
+                print(self.logger.tail(20))
+                print()
+                print("This looks like it hit the model's context limit — retrying won't fix it.")
+                print("Consider calling memory.summarize(...) before continuing.")
+                if not self._ask_yes_no("Try again anyway?"):
+                    return RunOutcome(status="context_limit")
+                return None  # ends this call to _step; _loop invokes it again
+            memory.add_user_note(f"[error] {response.error}")
+            return None  # ends this call to _step; _loop invokes it again
+
+        if response.text:
+            memory.add_model_response(response.text)
+            self.logger.log_model_response(response.text)
+
+        for call in response.tool_calls:
                 memory.add_tool_call(call.name, call.args, thought_signature=call.thought_signature)
                 self.logger.log_tool_call(call.name, call.args)
 
@@ -164,7 +177,10 @@ class Controller:
 
                 needed_confirmation = result.requires_confirmation
                 if needed_confirmation:
-                    approved, feedback = self._ask_confirm(call.name, result.output)
+                    if self.config.auto_approve_unsafe:
+                        approved, feedback = self._auto_approve(call.name, result.output)
+                    else:
+                        approved, feedback = self._ask_confirm(call.name, result.output)
                     if approved:
                         result = self.registry.call(call.name, self.config, **{**call.args, "confirmed": True})
                     else:
@@ -189,6 +205,28 @@ class Controller:
 
                 if needed_confirmation:
                     break  # halt the rest of this batch — model gets a fresh turn either way
+
+        return None
+
+    def _handle_pause(self, memory: Memory) -> None:
+        """First Ctrl+C during a _step call lands here instead of killing the
+        run. A second Ctrl+C — raised out of the input() call below, same as
+        any other KeyboardInterrupt — is deliberately NOT caught here, so it
+        propagates straight up through _loop to run()'s except block and
+        cancels for real. That's the whole "press again to quit" mechanism;
+        there's no separate counter or timeout."""
+        self.logger.log_pause("paused by user (Ctrl+C)")
+        print("\n\nPaused. Ctrl+C again to quit, or type a message to redirect and continue:")
+        try:
+            redirect = input("> ").strip()
+        except EOFError:
+            # No terminal to read from (piped/non-interactive) — nothing
+            # sensible to do but treat it like a second Ctrl+C.
+            raise KeyboardInterrupt from None
+        if redirect:
+            memory.add_user_note(f"[human — mid-task redirect] {redirect}")
+        self.logger.log_resume()
+        print("Resuming.\n")
 
     # ---- human interaction — every pause point funnels through here ----
 
@@ -217,6 +255,20 @@ class Controller:
             return input(f"{prompt}\n> ").strip()
         except EOFError:
             return ""
+
+    def _auto_approve(self, tool_name: str, description: str) -> tuple[bool, str]:
+        """AGENT_AUTO_APPROVE_UNSAFE path: same contract as _ask_confirm (bool,
+        feedback), but never blocks on stdin — answers 'y' unconditionally.
+        Still printed and logged at full volume specifically because nothing
+        else will catch a bad call here; this is the only remaining record."""
+        banner = f"AUTO-APPROVED (AGENT_AUTO_APPROVE_UNSAFE) for {tool_name}: {description}"
+        print()
+        print("!" * len(max(banner.split(chr(10)), key=len)))
+        print(banner)
+        print("!" * len(max(banner.split(chr(10)), key=len)))
+        self.logger.log_pause(banner)
+        self.logger.log_resume()
+        return True, ""
 
     def _ask_confirm(self, tool_name: str, description: str) -> tuple[bool, str]:
         print()

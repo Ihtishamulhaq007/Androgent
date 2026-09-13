@@ -17,6 +17,22 @@ Optional environment variables:
                             creates).
     AGENT_ITERATION_BLOCK  Iteration budget per run, and size of each
                             extension offered when it runs out. Default 40.
+    AGENT_AUTO_APPROVE_UNSAFE
+                            OFF by default. When set to a truthy value
+                            (1/true/yes), the controller auto-answers "y"
+                            to every ToolResult.needs_confirmation prompt
+                            instead of asking at the terminal — external
+                            writes outside WRITE_ROOT, network egress,
+                            delete_file, promote_file, all of it. This
+                            removes the only human checkpoint that exists
+                            once run_shell is in play (see WARNING.md).
+                            The is_catastrophic_command hard block in
+                            permissions.py is NOT affected by this flag —
+                            it's a refusal, not a confirmation, and stays
+                            on regardless. Every auto-approval is still
+                            logged loudly (see controller.py) so there's
+                            a record, but nothing pauses for you to catch
+                            it before it runs.
 
 Derived, not configurable:
     write_root        = <shared_root>/termux      WRITE_ROOT
@@ -69,6 +85,7 @@ class Config:
     log_dir: Path
     capabilities_path: Path
     preferences_path: Path
+    auto_approve_unsafe: bool = False
 
     def safe_summary(self) -> dict:
         """Config as a dict with the API key redacted — safe to log or print."""
@@ -84,6 +101,7 @@ class Config:
             "gemini_model": self.gemini_model,
             "iteration_block": self.iteration_block,
             "gemini_api_key": redacted,
+            "auto_approve_unsafe": self.auto_approve_unsafe,
         }
 
 
@@ -175,6 +193,7 @@ def load_config() -> Config:
         log_dir=log_dir,
         capabilities_path=capabilities_path,
         preferences_path=preferences_path,
+        auto_approve_unsafe=_bool_env("AGENT_AUTO_APPROVE_UNSAFE", default=False),
     )
 
 
@@ -196,6 +215,13 @@ def _require_env(name: str) -> str:
     if not value:
         raise ConfigError(f"{name} is not set. Export it before starting the agent:\n  export {name}=...")
     return value
+
+
+def _bool_env(name: str, *, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "y", "on")
 
 
 def _positive_int_env(name: str, *, default: int) -> int:
